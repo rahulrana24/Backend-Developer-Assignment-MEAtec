@@ -20,9 +20,19 @@ Node.js, Express, TypeScript, MongoDB (Mongoose), axios (Auth Service HTTP clien
 
 From the repo root (`MEAtec/`):
 
-1. Copy `passport/.env.example` to `passport/.env`. Leave `MONGO_URI`/`AUTH_SERVICE_URL` alone — `docker-compose.yml` overrides them to point at the `mongo` and `auth-service` containers. Set `KAFKA_BROKER`/`KAFKA_SASL_USERNAME`/`KAFKA_SASL_PASSWORD` (and drop the CA cert into `passport/certs/`, see below) if you want Kafka publishing.
+1. Copy `passport/.env.example` to `passport/.env`. Fill in a real `MONGO_URI` (Atlas or otherwise reachable from inside the container) — `docker-compose.yml` only overrides `AUTH_SERVICE_URL`, pointing it at the `auth-service` container by name; everything else comes from this file as-is. Set `KAFKA_BROKER`/`KAFKA_SASL_USERNAME`/`KAFKA_SASL_PASSWORD` (and drop the CA cert into `passport/certs/`, see below) if you want Kafka publishing.
 2. `docker compose up --build`
 3. The service is available at `http://localhost:4001`; Swagger UI at `http://localhost:4001/api-docs`.
+
+### Deploying to Render
+
+This service is deployed on Render, built directly from this directory's `Dockerfile` (Root Directory: `passport`). Live: https://passport-qhkl.onrender.com.
+
+1. Create a Render **Web Service** with Root Directory `passport` and Runtime `Docker` (it picks up `Dockerfile` automatically).
+2. Set the same env vars as `.env.example` — `PORT`, `MONGO_URI` (Atlas), `AUTH_SERVICE_URL` (the deployed Auth Service's Render URL), `AUTH_VERIFY_TIMEOUT_MS`, `LOG_LEVEL`, `KAFKA_BROKER`, `KAFKA_CLIENT_ID`, `KAFKA_CONNECT_TIMEOUT_MS`, `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD` (mark this one "secret" in Render's UI).
+3. Render has no equivalent of `docker-compose.yml`'s volume-mounted `./certs` directory, so the CA certificate needs Render's **Secret Files** instead: Environment tab → Secret Files → Add Secret File → Filename `/etc/secrets/ca.pem`, Contents pasted from your local `certs/ca.pem`.
+4. Set `KAFKA_SSL_CA_PATH=/etc/secrets/ca.pem` (overriding the `./certs/ca.pem` default, which only exists locally/in `docker-compose.yml`).
+5. Save — Render redeploys automatically. Check the deploy's logs for `Connected to Kafka (Aiven, SASL_SSL)` to confirm the cert and credentials resolved correctly; a missing/wrong CA path fails silently into the same "Kafka publishing disabled" path as `KAFKA_BROKER` being unset (by design — see [CLAUDE.md](CLAUDE.md)'s failure contract), so this log line is the only way to tell the difference between "not configured" and "configured but broken."
 
 ## Scripts
 

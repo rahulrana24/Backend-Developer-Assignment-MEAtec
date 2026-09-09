@@ -19,9 +19,17 @@ Node.js, Express, TypeScript, MongoDB (Mongoose), JWT (`jsonwebtoken`), bcrypt.
 
 From the repo root (`MEAtec/`):
 
-1. Copy `authentication/.env.example` to `authentication/.env` and set a real `JWT_SECRET`. Leave `MONGO_URI` alone — `docker-compose.yml` overrides it to point at the `mongo` container.
+1. Copy `authentication/.env.example` to `authentication/.env`, set a real `JWT_SECRET`, and fill in a real `MONGO_URI` (Atlas or otherwise reachable from inside the container) — `docker-compose.yml` doesn't override anything for this service; everything comes from this file as-is.
 2. `docker compose up --build`
 3. The service is available at `http://localhost:4000`.
+
+### Deploying to Render
+
+This service is deployed on Render, built directly from this directory's `Dockerfile` (Root Directory: `authentication`). Live: https://backend-developer-assignment-meatec.onrender.com.
+
+1. Create a Render **Web Service** with Root Directory `authentication` and Runtime `Docker`.
+2. Set the same env vars as `.env.example` — `PORT`, `MONGO_URI` (Atlas), `JWT_SECRET` (mark "secret" in Render's UI), `JWT_EXPIRES_IN`, `BCRYPT_SALT_ROUNDS`.
+3. Save — Render redeploys automatically. No certificates or other files needed; this service has no external dependency besides MongoDB.
 
 ## Scripts
 

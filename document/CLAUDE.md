@@ -41,7 +41,7 @@ Full request/response examples: [README.md](README.md). Interactive docs: `GET /
 
 ## S3 integration (`src/config/s3.ts`, `src/utils/s3Storage.ts`)
 
-Works unchanged against real AWS S3 or any S3-compatible store (MinIO, used in `docker-compose.yml` and tests):
+Works unchanged against real AWS S3 or any S3-compatible store (MinIO, for local dev — no longer wired into `docker-compose.yml`, which now points at real AWS S3 by default like the Render deployment does; run MinIO manually per the README's Setup section if you want it locally):
 
 - `S3_ENDPOINT` unset → talks to real AWS S3 using `S3_REGION` + `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` (or the default AWS credential chain if those are unset).
 - `S3_ENDPOINT` set (e.g. `http://minio:9000`) + `S3_FORCE_PATH_STYLE=true` → talks to that S3-compatible endpoint instead. MinIO needs path-style requests; real AWS S3 doesn't.
@@ -86,7 +86,7 @@ The root `CLAUDE.md` says JWT-protected endpoints without specifying roles (unli
 - **No `GET /api/documents` list/search endpoint** — not requested. A user currently needs a document's `_id` (e.g. returned at upload time) to fetch, update, or delete it.
 - **No virus/malware scanning on upload** — files are stored as-is. Fine for this assignment's scope; would matter before accepting untrusted uploads in a real production system.
 - **No mime-type allowlist** — any content type is accepted, gated only by `MAX_FILE_SIZE_MB`. Not requested; add a `fileFilter` to `src/middleware/upload.ts` if the requirement appears.
-- **No bucket-existence check at startup** — `docker-compose.yml`'s `minio-init` one-shot container creates the bucket for local dev; against real AWS S3, the bucket is assumed to already exist (an application shouldn't be provisioning its own S3 bucket in prod).
+- **No bucket-existence check at startup** — the bucket is assumed to already exist (a MinIO container run manually for local dev, or a real S3 bucket in prod/Render); this application never provisions its own bucket.
 - **No CI (GitHub Actions)** — same gap as `authentication/` and `passport/`.
 - **No rate limiting.**
 - **No caching layer in front of `/api/auth/verify`** — same known gap as `passport/`.

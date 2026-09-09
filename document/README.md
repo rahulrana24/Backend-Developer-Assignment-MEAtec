@@ -21,9 +21,17 @@ Node.js, Express, TypeScript, MongoDB (Mongoose) for metadata, AWS SDK v3 (`@aws
 
 From the repo root (`MEAtec/`):
 
-1. Copy `document/.env.example` to `document/.env`. Leave `MONGO_URI`/`AUTH_SERVICE_URL`/`S3_ENDPOINT`/`S3_FORCE_PATH_STYLE` alone — `docker-compose.yml` overrides them to point at the `mongo`, `auth-service`, and `minio` containers (a `minio-init` one-shot container creates the bucket automatically).
+1. Copy `document/.env.example` to `document/.env` with a real `MONGO_URI` and real S3 config (see the two options above) — `docker-compose.yml` only overrides `AUTH_SERVICE_URL`, pointing it at the `auth-service` container by name; everything else, including which S3 target to use, comes from this file as-is.
 2. `docker compose up --build`
-3. The service is available at `http://localhost:4003`; Swagger UI at `http://localhost:4003/api-docs`; the MinIO console at `http://localhost:9001` (`minioadmin`/`minioadmin`).
+3. The service is available at `http://localhost:4003`; Swagger UI at `http://localhost:4003/api-docs`.
+
+### Deploying to Render
+
+This service is deployed on Render, built directly from this directory's `Dockerfile` (Root Directory: `document`). Live: https://document-33qg.onrender.com.
+
+1. Create a Render **Web Service** with Root Directory `document` and Runtime `Docker`.
+2. Set the same env vars as `.env.example` — `PORT`, `MONGO_URI` (Atlas), `AUTH_SERVICE_URL` (the deployed Auth Service's Render URL), `AUTH_VERIFY_TIMEOUT_MS`, `LOG_LEVEL`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (mark this one "secret"), `PRESIGNED_URL_EXPIRY_SECONDS`, `MAX_FILE_SIZE_MB`. Leave `S3_ENDPOINT`/`S3_FORCE_PATH_STYLE` blank/`false` — real AWS S3, no MinIO involved in production.
+3. Save — Render redeploys automatically. No secret files needed for this service (no Kafka, no client certificates).
 
 ## Scripts
 

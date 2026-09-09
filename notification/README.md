@@ -29,6 +29,16 @@ From the repo root (`MEAtec/`):
 2. `docker compose up --build`
 3. The service is available at `http://localhost:4002`.
 
+### Deploying to Render
+
+This service is deployed on Render, built directly from this directory's `Dockerfile` (Root Directory: `notification`). Live: https://backend-developer-assignment-meatec-b8rk.onrender.com.
+
+1. Create a Render **Web Service** with Root Directory `notification` and Runtime `Docker`.
+2. Set the same env vars as `.env.example` — `PORT`, `LOG_LEVEL`, `KAFKA_BROKER`, `KAFKA_CLIENT_ID`, `KAFKA_CONNECT_TIMEOUT_MS`, `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD` (mark "secret" in Render's UI), `KAFKA_CONSUMER_FROM_BEGINNING`, and the `SMTP_*`/`NOTIFICATION_RECIPIENT_EMAIL` vars.
+3. Same as `passport/`: Render has no equivalent of `docker-compose.yml`'s volume-mounted `./certs` directory, so add a **Secret File** — Environment tab → Secret Files → Add Secret File → Filename `/etc/secrets/ca.pem`, Contents pasted from your local `certs/ca.pem` (same CA cert `passport/` uses, same Aiven cluster).
+4. Set `KAFKA_SSL_CA_PATH=/etc/secrets/ca.pem`.
+5. Save — Render redeploys automatically. Check the deploy's logs for `Connected to Kafka (Aiven, SASL_SSL) as consumer` to confirm it worked.
+
 ## Scripts
 
 | Command | Description |
