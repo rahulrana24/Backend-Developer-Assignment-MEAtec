@@ -1,0 +1,10 @@
+process.env.NODE_ENV = process.env.NODE_ENV ?? 'test';
+process.env.LOG_LEVEL = process.env.LOG_LEVEL ?? 'error';
+process.env.SMTP_HOST = process.env.SMTP_HOST ?? 'smtp.test.local';
+process.env.SMTP_PORT = process.env.SMTP_PORT ?? '587';
+process.env.SMTP_SECURE = process.env.SMTP_SECURE ?? 'false';
+process.env.SMTP_USER = process.env.SMTP_USER ?? 'test@test.local';
+process.env.SMTP_PASS = process.env.SMTP_PASS ?? 'test-pass';
+process.env.SMTP_FROM_NAME = process.env.SMTP_FROM_NAME ?? 'Battery Passport Notifications';
+process.env.SMTP_FROM_ADDRESS = process.env.SMTP_FROM_ADDRESS ?? 'test@test.local';
+process.env.NOTIFICATION_RECIPIENT_EMAIL = process.env.NOTIFICATION_RECIPIENT_EMAIL ?? 'rahul.rana2000.rr@gmail.com';

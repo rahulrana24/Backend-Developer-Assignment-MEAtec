@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+coverage/
+*.log
+logs/
+certs/*.pem
+certs/*.cert
+certs/*.key
+certs/*.crt
