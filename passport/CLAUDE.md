@@ -39,16 +39,21 @@ On success, `req.user = { userId, email, role }` (from the Auth Service's `/veri
 
 Every response above is wrapped in the standard envelope — `data` here means the envelope's `data` field. Full request/response examples with the exact sample body: [README.md](README.md). Interactive docs: `GET /api-docs`.
 
-## Kafka: `passport.change.stream` (Aiven, mTLS)
+## Kafka: `passport.change.stream` (Aiven, SASL_SSL)
 
 Every create/update/delete publishes one message to the **`passport.change.stream`** topic on Aiven Kafka, after the MongoDB write succeeds. This deliberately does **not** match the root `CLAUDE.md`'s original three-topic naming (`passport.created`/`passport.updated`/`passport.deleted`) — the user redirected to a single unified topic with an `eventType` field distinguishing the three cases instead. If you're reconciling against the root spec, this service's actual behavior (one topic) is the current source of truth, not the root doc.
 
-**Producer setup** (`src/config/kafka.ts`): mTLS via three files downloaded from the Aiven console (CA certificate, access certificate, access key — see [`certs/README.md`](certs/README.md)), paths given by `KAFKA_SSL_CA_PATH`/`KAFKA_SSL_CERT_PATH`/`KAFKA_SSL_KEY_PATH`. Bootstrap broker from `KAFKA_BROKER`.
+**Producer setup** (`src/config/kafka.ts`): `node-rdkafka` (not `kafkajs` — switched deliberately; see below), authenticating via **SASL_SSL with SCRAM-SHA-256** (username/password from `KAFKA_SASL_USERNAME`/`KAFKA_SASL_PASSWORD`), not a client certificate. A CA certificate is still required to verify the broker's TLS certificate (`KAFKA_SSL_CA_PATH`, see [`certs/README.md`](certs/README.md)) — only the client cert/key are gone, not the CA. Bootstrap broker from `KAFKA_BROKER`; connecting waits for the `'ready'` event (or `KAFKA_CONNECT_TIMEOUT_MS`, default 10s) rather than assuming success as soon as `.connect()` is called, since `node-rdkafka`'s `connect()` doesn't return a promise — nothing here awaits an actual handshake unless this Promise wrapper does it explicitly.
+
+**Why `node-rdkafka` instead of `kafkajs`**: an explicit user decision to move from mTLS to SASL_SSL/SCRAM-SHA-256 authentication against Aiven. This pulled in `node-rdkafka` as a native addon (compiled against `librdkafka` via `node-gyp`) — see the Dockerfile note below before touching the build. `kafkajs` was removed from `package.json` entirely once nothing in this service referenced it anymore; don't reintroduce it alongside `node-rdkafka` for the same producer.
 
 **Failure contract — this is load-bearing, don't change it without re-confirming with whoever owns this decision:**
-- If `KAFKA_BROKER` is unset, `connectKafkaProducer()` skips connecting entirely (logs once at startup) — local dev without Aiven access works fine, no events are published.
-- If the connection attempt fails, or a `producer.send()` call fails at publish time, it's caught and logged via Winston (`logger.error`) — **never thrown**, **never surfaces to the HTTP caller**. The MongoDB write is authoritative; a passport create/update/delete must succeed on its own even if Kafka/Aiven is completely down. This was an explicit user decision, not an oversight — don't "fix" it into failing the request when Kafka is unreachable.
+- If `KAFKA_BROKER`, `KAFKA_SASL_USERNAME`, or `KAFKA_SASL_PASSWORD` is unset, `connectKafkaProducer()` skips connecting entirely (logs once at startup) — local dev without Aiven access works fine, no events are published.
+- If the connection attempt fails, never becomes ready within `KAFKA_CONNECT_TIMEOUT_MS`, or a `producer.produce()` call throws at publish time, it's caught and logged via Winston (`logger.error`) — **never thrown**, **never surfaces to the HTTP caller**. The MongoDB write is authoritative; a passport create/update/delete must succeed on its own even if Kafka/Aiven is completely down. This was an explicit user decision, not an oversight — don't "fix" it into failing the request when Kafka is unreachable.
 - `getKafkaProducer()` returns `Producer | null` rather than throwing when disconnected — `publishPassportChangeEvent` checks for `null` and just returns.
+- `producer.produce()` (`node-rdkafka`) is **synchronous** — it only queues the message and can throw immediately (e.g. `ERR__QUEUE_FULL`), which `publishPassportChangeEvent`'s try/catch covers. It does **not** wait for the broker to actually accept the message; that confirmation arrives later via the `'delivery-report'` event wired up in `src/config/kafka.ts`, which only logs on failure — there's still no retry, and a delivery failure discovered this way was already reported to the HTTP caller as a success. Don't "fix" `publishPassportChangeEvent` to await broker acknowledgment without reconsidering the whole best-effort contract above.
+
+**Docker build note**: `node-rdkafka`'s native addon needs a C/C++ toolchain to compile (`python3 make g++ linux-headers openssl-dev zlib-dev`, installed via `apk` in the Dockerfile's builder stage) but the **runtime** stage does not — it copies the builder's already-compiled `node_modules` (after `npm prune --omit=dev`) instead of running `npm ci --omit=dev` again, and only needs the shared libraries the compiled addon links against (`libstdc++`, `openssl`). If you change how the image is built, keep this asymmetry: don't make the runtime stage reinstall from scratch, and don't drop the runtime-stage `apk add` thinking the toolchain packages cover it — those aren't present in that stage.
 
 **Event schema** (message key = passport `_id`, so all events for one passport land on the same partition and stay ordered):
 
@@ -84,7 +89,7 @@ No uniqueness constraint on `batteryIdentifier` — two passports can currently 
 
 ## Required env vars
 
-`PORT`, `MONGO_URI`, `AUTH_SERVICE_URL`, `AUTH_VERIFY_TIMEOUT_MS`, `LOG_LEVEL`, `KAFKA_BROKER`, `KAFKA_CLIENT_ID`, `KAFKA_SSL_CA_PATH`, `KAFKA_SSL_CERT_PATH`, `KAFKA_SSL_KEY_PATH`. See `.env.example`. No `JWT_SECRET` (see above). The Kafka topic name itself (`passport.change.stream`) is a constant in `src/config/kafka.ts`, not an env var — it's a fixed contract other consumers will build against, not a per-environment setting.
+`PORT`, `MONGO_URI`, `AUTH_SERVICE_URL`, `AUTH_VERIFY_TIMEOUT_MS`, `LOG_LEVEL`, `KAFKA_BROKER`, `KAFKA_CLIENT_ID`, `KAFKA_CONNECT_TIMEOUT_MS`, `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD`, `KAFKA_SSL_CA_PATH`. See `.env.example`. No `JWT_SECRET` (see above). The Kafka topic name itself (`passport.change.stream`) is a constant in `src/config/kafka.ts`, not an env var — it's a fixed contract other consumers will build against, not a per-environment setting.
 
 ## Conventions to keep consistent across the remaining services
 
@@ -100,7 +105,7 @@ No uniqueness constraint on `batteryIdentifier` — two passports can currently 
 
 ## Known gaps / not yet built
 
-- **No Kafka consumer exists yet.** `passport.change.stream` is published, but nothing reads it — the Notification Service described in the root `CLAUDE.md` doesn't exist. Events accumulate on the topic (subject to Aiven's retention) until a consumer is built.
+- **Kafka consumer**: the Notification Service (`notification/`) now consumes `passport.change.stream` and emails a notification per event — see its own `CLAUDE.md`/`README.md`. That consumer still uses `kafkajs`, independent of this producer's switch to `node-rdkafka`; the two libraries don't need to match since they only interact through the topic itself.
 - **No delivery guarantee beyond "best effort, log on failure."** There's no outbox pattern, no retry queue, and no reconciliation job — if Aiven is down at the moment of a write, that one event is simply lost (logged, not retried). If a consumer ever needs a complete history, this needs revisiting (e.g. an outbox table + a relay process) rather than assuming every DB write has a corresponding Kafka message.
 - **`diffObjects` doesn't diff arrays element-by-element** — see the Kafka section above.
 - No `GET /api/passports` list/search endpoint — not requested.

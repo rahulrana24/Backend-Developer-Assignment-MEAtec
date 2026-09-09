@@ -1,13 +1,13 @@
-# Aiven Kafka certificates
+# Aiven Kafka CA certificate
 
-This service authenticates to Aiven Kafka with mTLS. Download these three files from the Aiven console (**your Kafka service → Overview → "Access Certificate" / "Access Key" / "CA Certificate"**) and place them in this directory:
+This service authenticates to Aiven Kafka over **SASL_SSL** (SCRAM-SHA-256 username/password — see `KAFKA_SASL_USERNAME`/`KAFKA_SASL_PASSWORD` in [`.env.example`](../.env.example)), not mTLS. A CA certificate is still required to verify the broker's TLS certificate during the handshake, even though there's no client certificate/key involved anymore.
 
-- `ca.pem` — CA Certificate
-- `service.cert` — Access Certificate
-- `service.key` — Access Key
+Download it from the Aiven console (**your Kafka service → Overview → "CA Certificate"**) and place it here as:
 
-None of these are committed to git (`*.pem`, `*.cert`, `*.key` are gitignored here) — this file is the only tracked thing in this directory.
+- `ca.pem`
 
-The default paths in [`.env.example`](../.env.example) (`KAFKA_SSL_CA_PATH`, `KAFKA_SSL_CERT_PATH`, `KAFKA_SSL_KEY_PATH`) already point here (`./certs/...`), resolved relative to the service root. That works both locally (`npm run dev` from `passport/`) and in Docker, where `docker-compose.yml` mounts this directory into the container at `/app/certs` (the container's working directory is `/app`), read-only.
+Not committed to git (`*.pem` is gitignored here) — this file is the only tracked thing in this directory.
 
-If `KAFKA_BROKER` is left unset, the producer never connects and these files aren't read at all — passport create/update/delete still work, they just don't publish events.
+The default path in [`.env.example`](../.env.example) (`KAFKA_SSL_CA_PATH`) already points here (`./certs/ca.pem`), resolved relative to the service root. That works both locally (`npm run dev` from `passport/`) and in Docker, where `docker-compose.yml` mounts this directory into the container at `/app/certs` (the container's working directory is `/app`), read-only.
+
+If `KAFKA_BROKER` is left unset, the producer never connects and this file isn't read at all — passport create/update/delete still work, they just don't publish events.

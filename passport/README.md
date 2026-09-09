@@ -4,7 +4,7 @@ Battery Passport CRUD microservice for the Battery Passport platform. Owns creat
 
 ## Stack
 
-Node.js, Express, TypeScript, MongoDB (Mongoose), axios (Auth Service HTTP client), kafkajs (Aiven Kafka producer), Winston (logging), swagger-jsdoc + swagger-ui-express (API docs).
+Node.js, Express, TypeScript, MongoDB (Mongoose), axios (Auth Service HTTP client), node-rdkafka (Aiven Kafka producer over SASL_SSL), Winston (logging), swagger-jsdoc + swagger-ui-express (API docs).
 
 ## Setup
 
@@ -13,14 +13,14 @@ Node.js, Express, TypeScript, MongoDB (Mongoose), axios (Auth Service HTTP clien
 1. Requires Node 20+, a running MongoDB instance, and a reachable Auth Service.
 2. `npm install`
 3. Copy `.env.example` to `.env`. Point `MONGO_URI` at your local Mongo and `AUTH_SERVICE_URL` at your running Auth Service (e.g. `http://localhost:4000`).
-4. Optional — to publish Kafka events, set `KAFKA_BROKER` to your Aiven bootstrap host:port and drop the three certificate files into [`certs/`](certs/README.md). Leave `KAFKA_BROKER` blank to skip Kafka entirely; passport CRUD works either way.
+4. Optional — to publish Kafka events, set `KAFKA_BROKER` to your Aiven bootstrap host:port (its SASL_SSL listener), `KAFKA_SASL_USERNAME`/`KAFKA_SASL_PASSWORD` to your Aiven SASL credentials, and drop the CA certificate into [`certs/`](certs/README.md). Leave `KAFKA_BROKER` blank to skip Kafka entirely; passport CRUD works either way.
 5. `npm run dev` — starts the service with hot reload on `http://localhost:4001`.
 
 ### Docker
 
 From the repo root (`MEAtec/`):
 
-1. Copy `passport/.env.example` to `passport/.env`. Leave `MONGO_URI`/`AUTH_SERVICE_URL` alone — `docker-compose.yml` overrides them to point at the `mongo` and `auth-service` containers. Set `KAFKA_BROKER` (and drop the certs into `passport/certs/`, see below) if you want Kafka publishing.
+1. Copy `passport/.env.example` to `passport/.env`. Leave `MONGO_URI`/`AUTH_SERVICE_URL` alone — `docker-compose.yml` overrides them to point at the `mongo` and `auth-service` containers. Set `KAFKA_BROKER`/`KAFKA_SASL_USERNAME`/`KAFKA_SASL_PASSWORD` (and drop the CA cert into `passport/certs/`, see below) if you want Kafka publishing.
 2. `docker compose up --build`
 3. The service is available at `http://localhost:4001`; Swagger UI at `http://localhost:4001/api-docs`.
 
@@ -121,7 +121,7 @@ Any unmatched route returns the same envelope with `404`.
 
 ## Kafka events
 
-Every create/update/delete publishes a message to the **`passport.change.stream`** topic on Aiven Kafka (mTLS), in addition to the normal HTTP response. This is best-effort: if Kafka/Aiven is unreachable, or `KAFKA_BROKER` isn't set, the API request still succeeds normally — the publish failure is only logged (via Winston), never surfaced to the caller. See [CLAUDE.md](CLAUDE.md) for the full rationale and the exact failure-handling contract.
+Every create/update/delete publishes a message to the **`passport.change.stream`** topic on Aiven Kafka (SASL_SSL, SCRAM-SHA-256), in addition to the normal HTTP response. This is best-effort: if Kafka/Aiven is unreachable, or `KAFKA_BROKER` isn't set, the API request still succeeds normally — the publish failure is only logged (via Winston), never surfaced to the caller. See [CLAUDE.md](CLAUDE.md) for the full rationale and the exact failure-handling contract.
 
 Message key: the passport's `_id` (keeps all events for one passport on the same partition, so a consumer sees them in order). Message value (JSON):
 
@@ -154,7 +154,7 @@ For `updated` events, `changeDescription` is populated instead of `null`, listin
 
 ## Environment variables
 
-See [`.env.example`](.env.example): `PORT`, `MONGO_URI`, `AUTH_SERVICE_URL`, `AUTH_VERIFY_TIMEOUT_MS`, `LOG_LEVEL`, `KAFKA_BROKER`, `KAFKA_CLIENT_ID`, `KAFKA_SSL_CA_PATH`, `KAFKA_SSL_CERT_PATH`, `KAFKA_SSL_KEY_PATH`. Certificate setup: [`certs/README.md`](certs/README.md).
+See [`.env.example`](.env.example): `PORT`, `MONGO_URI`, `AUTH_SERVICE_URL`, `AUTH_VERIFY_TIMEOUT_MS`, `LOG_LEVEL`, `KAFKA_BROKER`, `KAFKA_CLIENT_ID`, `KAFKA_CONNECT_TIMEOUT_MS`, `KAFKA_SASL_USERNAME`, `KAFKA_SASL_PASSWORD`, `KAFKA_SSL_CA_PATH`. Certificate setup: [`certs/README.md`](certs/README.md).
 
 ## Logging
 
@@ -169,7 +169,7 @@ src/
   config/
     db.ts                 mongoose connection
     logger.ts              winston logger
-    kafka.ts                Aiven Kafka producer: connect/disconnect, mTLS setup
+    kafka.ts                Aiven Kafka producer: connect/disconnect, SASL_SSL setup
     swagger.ts              builds/mounts the OpenAPI spec
     swaggerSchemas.ts        reusable OpenAPI component schemas (JSDoc only)
   models/Passport.ts      typed nested schema (generalInformation, materialComposition, carbonFootprint)

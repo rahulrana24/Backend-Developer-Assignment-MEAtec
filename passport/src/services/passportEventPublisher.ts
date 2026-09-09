@@ -22,6 +22,11 @@ export interface PassportChangeEvent {
  * Publishes a passport lifecycle event to Kafka. Never throws — a Kafka/Aiven
  * outage must not fail the passport CRUD request that triggered this (the database
  * write already succeeded by the time this is called). Failures are logged instead.
+ *
+ * node-rdkafka's produce() is synchronous — it only queues the message locally and
+ * can throw immediately (e.g. ERR__QUEUE_FULL), which the try/catch below covers.
+ * Actual broker-level delivery failures arrive later via the 'delivery-report' event
+ * (see src/config/kafka.ts), not through this function.
  */
 export async function publishPassportChangeEvent(event: PassportChangeEvent): Promise<void> {
   const producer = getKafkaProducer();
@@ -30,10 +35,13 @@ export async function publishPassportChangeEvent(event: PassportChangeEvent): Pr
   }
 
   try {
-    await producer.send({
-      topic: KAFKA_TOPIC_PASSPORT_CHANGE,
-      messages: [{ key: event.passportId, value: JSON.stringify(event) }],
-    });
+    producer.produce(
+      KAFKA_TOPIC_PASSPORT_CHANGE,
+      null,
+      Buffer.from(JSON.stringify(event)),
+      event.passportId,
+      Date.now(),
+    );
   } catch (err) {
     logger.error('Failed to publish passport change event', {
       eventType: event.eventType,
