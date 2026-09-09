@@ -2,10 +2,12 @@
 # builder stage needs a full C/C++ toolchain — the runtime stage does NOT: it copies
 # the already-compiled node_modules from here instead of re-running npm install
 # (which would need the same toolchain again) and only needs the shared libs the
-# compiled addon links against at runtime (see below).
+# compiled addon links against at runtime (see below). `bash` is required too —
+# librdkafka's vendored `configure` script is a bash script, and Alpine's default
+# /bin/sh (busybox ash) can't run it ("env: can't execute 'bash'").
 FROM node:20-alpine AS builder
 WORKDIR /app
-RUN apk add --no-cache python3 make g++ linux-headers openssl-dev zlib-dev libc6-compat
+RUN apk add --no-cache python3 make g++ linux-headers openssl-dev zlib-dev libc6-compat bash
 COPY package*.json ./
 RUN npm ci
 COPY tsconfig.json ./
