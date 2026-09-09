@@ -7,6 +7,11 @@ const SASL_USERNAME = process.env.KAFKA_SASL_USERNAME;
 const SASL_PASSWORD = process.env.KAFKA_SASL_PASSWORD;
 const CA_PATH = process.env.KAFKA_SSL_CA_PATH ?? './certs/ca.pem';
 const CONNECT_TIMEOUT_MS = Number(process.env.KAFKA_CONNECT_TIMEOUT_MS ?? 10000);
+// node-rdkafka's plain Producer only surfaces 'delivery-report'/'event.error' when
+// something drains its internal event queue — without polling on an interval, we'd
+// never learn about a delivery failure, and the queue can eventually fill up (see
+// node-rdkafka's README, "Producer" section). This is unrelated to CONNECT_TIMEOUT_MS.
+const POLL_INTERVAL_MS = 1000;
 
 export const KAFKA_TOPIC_PASSPORT_CHANGE = 'passport.change.stream';
 
@@ -39,49 +44,55 @@ export async function connectKafkaProducer(): Promise<void> {
       resolve();
     };
 
-    const kafkaProducer = new Producer({
-      'client.id': CLIENT_ID,
-      'bootstrap.servers': KAFKA_BROKERS,
-      'security.protocol': 'sasl_ssl',
-      'sasl.mechanism': 'SCRAM-SHA-256',
-      'sasl.username': SASL_USERNAME,
-      'sasl.password': SASL_PASSWORD,
-      'ssl.ca.location': CA_PATH,
-      dr_cb: true,
-    });
-
-    const connectTimeout = setTimeout(() => {
-      logger.error('Kafka producer did not become ready in time — passport events will not be published', {
-        timeoutMs: CONNECT_TIMEOUT_MS,
-      });
-      settle();
-    }, CONNECT_TIMEOUT_MS);
-
-    kafkaProducer.on('ready', () => {
-      clearTimeout(connectTimeout);
-      producer = kafkaProducer;
-      logger.info('Connected to Kafka (Aiven, SASL_SSL)', { brokers: KAFKA_BROKERS });
-      settle();
-    });
-
-    // Non-fatal producer errors (auth issues, broker hiccups) surface here — logged,
-    // never thrown, since nothing awaits this event handler.
-    kafkaProducer.on('event.error', (err: LibrdKafkaError) => {
-      logger.error('Kafka producer error', { error: err.message });
-    });
-
-    // produce() only queues a message synchronously — a broker-level publish
-    // failure is only known once its delivery report comes back, here.
-    kafkaProducer.on('delivery-report', (err: LibrdKafkaError | null, report: DeliveryReport) => {
-      if (err) {
-        logger.error('Failed to deliver passport change event to Kafka', { error: err.message, topic: report.topic });
-      }
-    });
-
+    // `new Producer(...)` and `.connect()` both throw synchronously on a bad
+    // config value (e.g. a librdkafka build without SSL support) rather than via
+    // an event, so this whole block is wrapped in try/catch, not just .connect().
     try {
+      const kafkaProducer = new Producer({
+        'client.id': CLIENT_ID,
+        'bootstrap.servers': KAFKA_BROKERS,
+        'security.protocol': 'sasl_ssl',
+        'sasl.mechanism': 'SCRAM-SHA-256',
+        'sasl.username': SASL_USERNAME,
+        'sasl.password': SASL_PASSWORD,
+        'ssl.ca.location': CA_PATH,
+        dr_cb: true,
+      });
+
+      const connectTimeout = setTimeout(() => {
+        logger.error('Kafka producer did not become ready in time — passport events will not be published', {
+          timeoutMs: CONNECT_TIMEOUT_MS,
+        });
+        settle();
+      }, CONNECT_TIMEOUT_MS);
+
+      kafkaProducer.on('ready', () => {
+        clearTimeout(connectTimeout);
+        producer = kafkaProducer;
+        logger.info('Connected to Kafka (Aiven, SASL_SSL)', { brokers: KAFKA_BROKERS });
+        settle();
+      });
+
+      // Non-fatal producer errors (auth issues, broker hiccups) surface here — logged,
+      // never thrown, since nothing awaits this event handler.
+      kafkaProducer.on('event.error', (err: LibrdKafkaError) => {
+        logger.error('Kafka producer error', { error: err.message });
+      });
+
+      // produce() only queues a message synchronously — a broker-level publish
+      // failure is only known once its delivery report comes back, here.
+      kafkaProducer.on('delivery-report', (err: LibrdKafkaError | null, report: DeliveryReport) => {
+        if (err) {
+          logger.error('Failed to deliver passport change event to Kafka', {
+            error: err.message,
+            topic: report.topic,
+          });
+        }
+      });
+
       kafkaProducer.connect();
+      kafkaProducer.setPollInterval(POLL_INTERVAL_MS);
     } catch (err) {
-      clearTimeout(connectTimeout);
       logger.error('Failed to connect Kafka producer — passport events will not be published', {
         error: (err as Error).message,
       });
